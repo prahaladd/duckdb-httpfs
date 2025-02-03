@@ -289,7 +289,7 @@ string S3FileSystem::InitializeMultipartUpload(S3FileHandle &file_handle) {
 	auto close_tag_pos = result.find("</UploadId>", open_tag_pos);
 
 	if (open_tag_pos == string::npos || close_tag_pos == string::npos) {
-		throw IOException("Unexpected response while initializing S3 multipart upload");
+		throw HTTPException("Unexpected response while initializing S3 multipart upload");
 	}
 
 	open_tag_pos += 10; // Skip open tag
