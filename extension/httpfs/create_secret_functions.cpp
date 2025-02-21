@@ -39,6 +39,8 @@ unique_ptr<BaseSecret> CreateS3SecretFunctions::CreateSecretFunctionInternal(Cli
 		secret->secret_map["url_style"] = "path";
 	}
 
+	bool refresh = false;
+
 	// apply any overridden settings
 	for (const auto &named_param : input.options) {
 		auto lower_name = StringUtil::Lower(named_param.first);
@@ -69,12 +71,71 @@ unique_ptr<BaseSecret> CreateS3SecretFunctions::CreateSecretFunctionInternal(Cli
 			secret->secret_map["url_compatibility_mode"] = Value::BOOLEAN(named_param.second.GetValue<bool>());
 		} else if (lower_name == "account_id") {
 			continue; // handled already
+		} else if (lower_name == "refresh") {
+			refresh = named_param.second.GetValue<bool>();
+			secret->secret_map["refresh"] = Value::BOOLEAN(refresh);
+
 		} else {
 			throw InternalException("Unknown named parameter passed to CreateSecretFunctionInternal: " + lower_name);
 		}
 	}
 
+	if (refresh) {
+		child_list_t<Value> struct_fields;
+		for (const auto &named_param : input.options) {
+			auto lower_name = StringUtil::Lower(named_param.first);
+			struct_fields.push_back({lower_name, named_param.second});
+		}
+		secret->secret_map["refresh_info"] = Value::STRUCT(struct_fields);
+	}
+
 	return std::move(secret);
+}
+
+CreateSecretInfo CreateS3SecretFunctions::GenerateRefreshSecretInfo(const SecretEntry &secret_entry, Value &refresh_info) {
+	const auto &kv_secret = dynamic_cast<const KeyValueSecret&>(*secret_entry.secret);
+
+	CreateSecretInfo result(OnCreateConflict::REPLACE_ON_CONFLICT, secret_entry.persist_type);
+
+	result.type = kv_secret.GetType();
+	result.name = kv_secret.GetName();
+	result.provider = kv_secret.GetProvider();
+	result.storage_type = secret_entry.storage_mode;
+	result.scope = kv_secret.GetScope();
+
+	auto result_child_count = StructType::GetChildCount(refresh_info.type());
+	auto refresh_info_children = StructValue::GetChildren(refresh_info);
+	D_ASSERT(refresh_info_children.size() == result_child_count);
+	for (idx_t i = 0; i < result_child_count; i++) {
+		auto &key = StructType::GetChildName(refresh_info.type(), i);
+		auto &value = refresh_info_children[i];
+		result.options[key] = value;
+	}
+
+	return result;
+}
+
+//! Function that will automatically try to refresh a secret
+bool CreateS3SecretFunctions::TryRefreshS3Secret(ClientContext &context, const SecretEntry &secret_to_refresh) {
+	const auto &kv_secret = dynamic_cast<const KeyValueSecret&>(*secret_to_refresh.secret);
+
+	Value refresh_info;
+	if (!kv_secret.TryGetValue("refresh_info", refresh_info)) {
+		return false;
+	}
+	auto &secret_manager = context.db->GetSecretManager();
+	auto refresh_input = GenerateRefreshSecretInfo(secret_to_refresh, refresh_info);
+
+	// TODO: change SecretManager API to avoid requiring catching this exception
+	try {
+		auto res = secret_manager.CreateSecret(context, refresh_input);
+		auto &new_secret = dynamic_cast<const KeyValueSecret&>(*res->secret);
+		DUCKDB_LOG_INFO(context, "duckdb.Secret.Refresh", "Successfully refreshed secret: %s, new key_id: %s", secret_to_refresh.secret->GetName(), new_secret.TryGetValue("key_id").ToString());
+		return true;
+	} catch (InvalidInputException &e) {
+		DUCKDB_LOG_INFO(context, "duckdb.Secret.Refresh", "Failed to refreshed secret: %s", secret_to_refresh.secret->GetName());
+		return false;
+	}
 }
 
 unique_ptr<BaseSecret> CreateS3SecretFunctions::CreateS3SecretFromConfig(ClientContext &context,
@@ -91,6 +152,8 @@ void CreateS3SecretFunctions::SetBaseNamedParams(CreateSecretFunction &function,
 	function.named_parameters["url_style"] = LogicalType::VARCHAR;
 	function.named_parameters["use_ssl"] = LogicalType::BOOLEAN;
 	function.named_parameters["url_compatibility_mode"] = LogicalType::BOOLEAN;
+
+	function.named_parameters["refresh"] = LogicalType::BOOLEAN;
 
 	if (type == "r2") {
 		function.named_parameters["account_id"] = LogicalType::VARCHAR;

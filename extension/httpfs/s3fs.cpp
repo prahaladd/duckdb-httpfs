@@ -16,6 +16,8 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/storage/buffer_manager.hpp"
 
+#include "create_secret_functions.hpp"
+
 #include <iostream>
 #include <thread>
 
@@ -793,7 +795,32 @@ void S3FileSystem::Verify() {
 }
 
 void S3FileHandle::Initialize(optional_ptr<FileOpener> opener) {
-	HTTPFileHandle::Initialize(opener);
+	try {
+		HTTPFileHandle::Initialize(opener);
+	} catch (Exception &e) {
+		if (StringUtil::Contains(e.what(), "40") && opener) {
+			bool refreshed_secret = false;
+			auto context = opener->TryGetClientContext();
+			if (context) {
+				auto transaction = CatalogTransaction::GetSystemCatalogTransaction(*context);
+				for (const string &type : {"s3", "r2", "gcs"}) {
+					auto res = context->db->GetSecretManager().LookupSecret(transaction, path, type);
+					if (res.HasMatch()) {
+						refreshed_secret |= CreateS3SecretFunctions::TryRefreshS3Secret(*context, *res.secret_entry);
+					}
+				}
+			}
+
+			if (refreshed_secret) {
+				// We have succesfully refreshed a secret: retry initializing with new credentials
+				FileOpenerInfo info = {path};
+				auth_params = S3AuthParams::ReadFrom(opener, info);
+				HTTPFileHandle::Initialize(opener);
+				return;
+			}
+		}
+		throw;
+	}
 
 	auto &s3fs = file_system.Cast<S3FileSystem>();
 
