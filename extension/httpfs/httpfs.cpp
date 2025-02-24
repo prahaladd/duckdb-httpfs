@@ -331,7 +331,7 @@ unique_ptr<ResponseWrapper> HTTPFileSystem::GetRequest(FileHandle &handle, strin
 					    error += " This could mean the file was changed. Try disabling the duckdb http metadata cache "
 					             "if enabled, and confirm the server supports range requests.";
 				    }
-				    throw IOException(error);
+				    throw HTTPException(error);
 			    }
 			    return true;
 		    },

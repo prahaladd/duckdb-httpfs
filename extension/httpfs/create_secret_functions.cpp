@@ -11,6 +11,21 @@ void CreateS3SecretFunctions::Register(DatabaseInstance &instance) {
 	RegisterCreateSecretFunction(instance, "gcs");
 }
 
+static Value MapToStruct(const Value &map){
+	auto children = MapValue::GetChildren(map);
+
+	// Convert refresh info from map to struct
+	child_list_t<Value> struct_fields;
+	for (const auto &kv_child : children) {
+		auto kv_pair = StructValue::GetChildren(kv_child);
+		if (kv_pair.size() != 2) {
+			throw InvalidInputException("Invalid input passed to refresh_info");
+		}
+
+		struct_fields.push_back({kv_pair[0].ToString(), kv_pair[1]});
+	}
+	return Value::STRUCT(struct_fields);
+}
 unique_ptr<BaseSecret> CreateS3SecretFunctions::CreateSecretFunctionInternal(ClientContext &context,
                                                                              CreateSecretInput &input) {
 	// Set scope to user provided scope or the default
@@ -74,19 +89,20 @@ unique_ptr<BaseSecret> CreateS3SecretFunctions::CreateSecretFunctionInternal(Cli
 		} else if (lower_name == "refresh") {
 			refresh = named_param.second.GetValue<bool>();
 			secret->secret_map["refresh"] = Value::BOOLEAN(refresh);
-
+			child_list_t<Value> struct_fields;
+			for (const auto &named_param : input.options) {
+				auto lower_name = StringUtil::Lower(named_param.first);
+				struct_fields.push_back({lower_name, named_param.second});
+			}
+			secret->secret_map["refresh_info"] = Value::STRUCT(struct_fields);
+		} else if (lower_name == "refresh_info") {
+			if (refresh) {
+				throw InvalidInputException("Can not set `refresh` and `refresh_info` at the same time");
+			}
+			secret->secret_map["refresh_info"] = MapToStruct(named_param.second);
 		} else {
-			throw InternalException("Unknown named parameter passed to CreateSecretFunctionInternal: " + lower_name);
+			throw InvalidInputException("Unknown named parameter passed to CreateSecretFunctionInternal: " + lower_name);
 		}
-	}
-
-	if (refresh) {
-		child_list_t<Value> struct_fields;
-		for (const auto &named_param : input.options) {
-			auto lower_name = StringUtil::Lower(named_param.first);
-			struct_fields.push_back({lower_name, named_param.second});
-		}
-		secret->secret_map["refresh_info"] = Value::STRUCT(struct_fields);
 	}
 
 	return std::move(secret);
@@ -130,10 +146,10 @@ bool CreateS3SecretFunctions::TryRefreshS3Secret(ClientContext &context, const S
 	try {
 		auto res = secret_manager.CreateSecret(context, refresh_input);
 		auto &new_secret = dynamic_cast<const KeyValueSecret&>(*res->secret);
-		DUCKDB_LOG_INFO(context, "duckdb.Secret.Refresh", "Successfully refreshed secret: %s, new key_id: %s", secret_to_refresh.secret->GetName(), new_secret.TryGetValue("key_id").ToString());
+		DUCKDB_LOG_INFO(context, "httpfs.SecretRefresh", "Successfully refreshed secret: %s, new key_id: %s", secret_to_refresh.secret->GetName(), new_secret.TryGetValue("key_id").ToString());
 		return true;
 	} catch (InvalidInputException &e) {
-		DUCKDB_LOG_INFO(context, "duckdb.Secret.Refresh", "Failed to refreshed secret: %s", secret_to_refresh.secret->GetName());
+		DUCKDB_LOG_WARN(context, "httpfs.SecretRefresh", "Failed to refresh secret %s: %s", secret_to_refresh.secret->GetName(), e.what());
 		return false;
 	}
 }
@@ -153,7 +169,11 @@ void CreateS3SecretFunctions::SetBaseNamedParams(CreateSecretFunction &function,
 	function.named_parameters["use_ssl"] = LogicalType::BOOLEAN;
 	function.named_parameters["url_compatibility_mode"] = LogicalType::BOOLEAN;
 
+	// Whether a secret refresh attempt should be made when the secret appears to be incorrect
 	function.named_parameters["refresh"] = LogicalType::BOOLEAN;
+
+	// Debugging/testing option: it allows specifying how the secret will be refreshed using a manually specfied MAP
+	function.named_parameters["refresh_info"] = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR);
 
 	if (type == "r2") {
 		function.named_parameters["account_id"] = LogicalType::VARCHAR;
