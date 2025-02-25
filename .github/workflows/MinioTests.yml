@@ -60,11 +60,6 @@ jobs:
           source ./scripts/run_s3_test_server.sh
           sleep 30
 
-      - name: Write AWS credentials file
-        shell: bash
-        run: |
-          ./scripts/create_minio_credential_file.sh
-
       - name: Test
         shell: bash
         run: |
