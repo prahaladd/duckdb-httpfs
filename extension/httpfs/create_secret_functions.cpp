@@ -14,7 +14,6 @@ void CreateS3SecretFunctions::Register(DatabaseInstance &instance) {
 static Value MapToStruct(const Value &map){
 	auto children = MapValue::GetChildren(map);
 
-	// Convert refresh info from map to struct
 	child_list_t<Value> struct_fields;
 	for (const auto &kv_child : children) {
 		auto kv_pair = StructValue::GetChildren(kv_child);
