@@ -86,6 +86,9 @@ unique_ptr<BaseSecret> CreateS3SecretFunctions::CreateSecretFunctionInternal(Cli
 		} else if (lower_name == "account_id") {
 			continue; // handled already
 		} else if (lower_name == "refresh") {
+			if (refresh) {
+				throw InvalidInputException("Can not set `refresh` and `refresh_info` at the same time");
+			}
 			refresh = named_param.second.GetValue<bool>();
 			secret->secret_map["refresh"] = Value::BOOLEAN(refresh);
 			child_list_t<Value> struct_fields;
@@ -98,6 +101,7 @@ unique_ptr<BaseSecret> CreateS3SecretFunctions::CreateSecretFunctionInternal(Cli
 			if (refresh) {
 				throw InvalidInputException("Can not set `refresh` and `refresh_info` at the same time");
 			}
+			refresh = true;
 			secret->secret_map["refresh_info"] = MapToStruct(named_param.second);
 		} else {
 			throw InvalidInputException("Unknown named parameter passed to CreateSecretFunctionInternal: " + lower_name);
