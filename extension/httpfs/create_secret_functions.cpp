@@ -89,8 +89,8 @@ unique_ptr<BaseSecret> CreateS3SecretFunctions::CreateSecretFunctionInternal(Cli
 			if (refresh) {
 				throw InvalidInputException("Can not set `refresh` and `refresh_info` at the same time");
 			}
-			refresh = named_param.second.GetValue<bool>();
-			secret->secret_map["refresh"] = Value::BOOLEAN(refresh);
+			refresh = named_param.second.GetValue<string>() == "auto";
+			secret->secret_map["refresh"] = Value("auto");
 			child_list_t<Value> struct_fields;
 			for (const auto &named_param : input.options) {
 				auto lower_name = StringUtil::Lower(named_param.first);
@@ -174,7 +174,15 @@ void CreateS3SecretFunctions::SetBaseNamedParams(CreateSecretFunction &function,
 	function.named_parameters["url_compatibility_mode"] = LogicalType::BOOLEAN;
 
 	// Whether a secret refresh attempt should be made when the secret appears to be incorrect
-	function.named_parameters["refresh"] = LogicalType::BOOLEAN;
+	function.named_parameters["refresh"] = LogicalType::VARCHAR;
+
+	// Refresh Modes
+	// - auto
+	// - disabled
+	// - on_error
+	// - on_timeout
+
+	// - on_use: every time a secret is used, it will refresh.
 
 	// Debugging/testing option: it allows specifying how the secret will be refreshed using a manually specfied MAP
 	function.named_parameters["refresh_info"] = LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR);
