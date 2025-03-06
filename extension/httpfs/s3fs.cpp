@@ -875,8 +875,8 @@ void S3FileSystem::RemoveDirectory(const string &path, optional_ptr<FileOpener> 
 		    try {
 			    this->RemoveFile(file, opener);
 		    } catch (IOException &e) {
-			    std::string_view error = e.what();
-			    if (error.find("No such file or directory") != std::string::npos) {
+				string errmsg(e.what());
+			    if (errmsg.find("No such file or directory") != std::string::npos) {
 				    return;
 			    }
 			    throw;
