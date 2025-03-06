@@ -9,7 +9,6 @@ else ()
 endif()
 
 duckdb_extension_load(httpfs
-	DONT_LINK
 	SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}
 	INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/extension/httpfs/include
 	${LOAD_HTTPFS_TESTS}
