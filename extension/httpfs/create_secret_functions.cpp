@@ -151,9 +151,10 @@ bool CreateS3SecretFunctions::TryRefreshS3Secret(ClientContext &context, const S
 		auto &new_secret = dynamic_cast<const KeyValueSecret&>(*res->secret);
 		DUCKDB_LOG_INFO(context, "httpfs.SecretRefresh", "Successfully refreshed secret: %s, new key_id: %s", secret_to_refresh.secret->GetName(), new_secret.TryGetValue("key_id").ToString());
 		return true;
-	} catch (InvalidInputException &e) {
-		DUCKDB_LOG_WARN(context, "httpfs.SecretRefresh", "Failed to refresh secret %s: %s", secret_to_refresh.secret->GetName(), e.what());
-		return false;
+	} catch (std::exception &ex) {
+		ErrorData error(ex);
+		string new_message = StringUtil::Format("Exception thrown while trying to refresh secret %s. To fix this, please recreate or remove the secret and try again. Error: '%s'", secret_to_refresh.secret->GetName(), error.Message());
+		throw Exception(error.Type(), new_message);
 	}
 }
 

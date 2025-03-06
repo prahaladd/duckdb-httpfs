@@ -796,25 +796,28 @@ void S3FileSystem::Verify() {
 void S3FileHandle::Initialize(optional_ptr<FileOpener> opener) {
 	try {
 		HTTPFileHandle::Initialize(opener);
-	} catch (HTTPException &e) {
-		bool refreshed_secret = false;
-		auto context = opener->TryGetClientContext();
-		if (context) {
-			auto transaction = CatalogTransaction::GetSystemCatalogTransaction(*context);
-			for (const string type : {"s3", "r2", "gcs"}) {
-				auto res = context->db->GetSecretManager().LookupSecret(transaction, path, type);
-				if (res.HasMatch()) {
-					refreshed_secret |= CreateS3SecretFunctions::TryRefreshS3Secret(*context, *res.secret_entry);
+	} catch (std::exception &ex) {
+		ErrorData error(ex);
+		if (error.Type() == ExceptionType::IO || error.Type() == ExceptionType::HTTP) {
+			bool refreshed_secret = false;
+			auto context = opener->TryGetClientContext();
+			if (context) {
+				auto transaction = CatalogTransaction::GetSystemCatalogTransaction(*context);
+				for (const string type : {"s3", "r2", "gcs"}) {
+					auto res = context->db->GetSecretManager().LookupSecret(transaction, path, type);
+					if (res.HasMatch()) {
+						refreshed_secret |= CreateS3SecretFunctions::TryRefreshS3Secret(*context, *res.secret_entry);
+					}
 				}
 			}
-		}
 
-		if (refreshed_secret) {
-			// We have succesfully refreshed a secret: retry initializing with new credentials
-			FileOpenerInfo info = {path};
-			auth_params = S3AuthParams::ReadFrom(opener, info);
-			HTTPFileHandle::Initialize(opener);
-			return;
+			if (refreshed_secret) {
+				// We have succesfully refreshed a secret: retry initializing with new credentials
+				FileOpenerInfo info = {path};
+				auth_params = S3AuthParams::ReadFrom(opener, info);
+				HTTPFileHandle::Initialize(opener);
+				return;
+			}
 		}
 		throw;
 	}
