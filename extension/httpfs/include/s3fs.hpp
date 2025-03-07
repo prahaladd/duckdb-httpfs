@@ -19,6 +19,8 @@
 #include <exception>
 #include <iostream>
 
+#undef RemoveDirectory
+
 namespace duckdb {
 
 struct S3AuthParams {
