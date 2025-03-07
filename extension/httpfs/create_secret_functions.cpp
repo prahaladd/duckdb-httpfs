@@ -7,6 +7,7 @@ namespace duckdb {
 
 void CreateS3SecretFunctions::Register(DatabaseInstance &instance) {
 	RegisterCreateSecretFunction(instance, "s3");
+	RegisterCreateSecretFunction(instance, "aws");
 	RegisterCreateSecretFunction(instance, "r2");
 	RegisterCreateSecretFunction(instance, "gcs");
 }
@@ -39,6 +40,8 @@ unique_ptr<BaseSecret> CreateS3SecretFunctions::CreateSecretFunctionInternal(Cli
 		} else if (input.type == "gcs") {
 			scope.push_back("gcs://");
 			scope.push_back("gs://");
+		} else if (input.type == "aws") {
+			scope.push_back("");
 		} else {
 			throw InternalException("Unknown secret type found in httpfs extension: '%s'", input.type);
 		}

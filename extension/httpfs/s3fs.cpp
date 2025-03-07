@@ -156,7 +156,7 @@ S3AuthParams S3AuthParams::ReadFrom(optional_ptr<FileOpener> opener, FileOpenerI
 		return result;
 	}
 
-	const char *secret_types[] = {"s3", "r2", "gcs"};
+	const char *secret_types[] = {"s3", "r2", "gcs", "aws"};
 	KeyValueSecretReader secret_reader(*opener, info, secret_types, 3);
 
 	// These settings we just set or leave to their S3AuthParams default value
@@ -803,7 +803,7 @@ void S3FileHandle::Initialize(optional_ptr<FileOpener> opener) {
 			auto context = opener->TryGetClientContext();
 			if (context) {
 				auto transaction = CatalogTransaction::GetSystemCatalogTransaction(*context);
-				for (const string type : {"s3", "r2", "gcs"}) {
+				for (const string type : {"s3", "r2", "gcs", "aws"}) {
 					auto res = context->db->GetSecretManager().LookupSecret(transaction, path, type);
 					if (res.HasMatch()) {
 						refreshed_secret |= CreateS3SecretFunctions::TryRefreshS3Secret(*context, *res.secret_entry);
