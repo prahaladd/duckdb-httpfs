@@ -19,6 +19,8 @@
 #include <exception>
 #include <iostream>
 
+#undef RemoveDirectory
+
 namespace duckdb {
 
 struct S3AuthParams {
@@ -188,6 +190,7 @@ public:
 	duckdb::unique_ptr<ResponseWrapper> PutRequest(FileHandle &handle, string s3_url, HeaderMap header_map,
 	                                               char *buffer_in, idx_t buffer_in_len,
 	                                               string http_params = "") override;
+	duckdb::unique_ptr<ResponseWrapper> DeleteRequest(FileHandle &handle, string s3_url, HeaderMap header_map) override;
 
 	static void Verify();
 
@@ -195,6 +198,8 @@ public:
 	bool OnDiskFile(FileHandle &handle) override {
 		return false;
 	}
+	void RemoveFile(const string &filename, optional_ptr<FileOpener> opener = nullptr) override;
+	void RemoveDirectory(const string &directory, optional_ptr<FileOpener> opener = nullptr) override;
 	void FileSync(FileHandle &handle) override;
 	void Write(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) override;
 
