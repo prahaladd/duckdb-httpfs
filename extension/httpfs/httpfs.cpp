@@ -515,7 +515,14 @@ void HTTPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, id
 	if (skip_buffer && to_read > 0) {
 		GetRangeRequest(hfh, hfh.path, {}, location, (char *)buffer, to_read);
 
-		std::lock_guard<std::mutex> lck(hfh.mu);
+		// Update handle status within critical section for parallel access.
+		if (hfh.flags.RequireParallelAccess()) {
+			std::lock_guard<std::mutex> lck(hfh.mu);
+			hfh.buffer_available = 0;
+			hfh.buffer_idx = 0;
+			return;
+		}
+
 		hfh.buffer_available = 0;
 		hfh.buffer_idx = 0;
 		return;
