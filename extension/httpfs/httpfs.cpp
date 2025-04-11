@@ -629,6 +629,11 @@ time_t HTTPFileSystem::GetLastModifiedTime(FileHandle &handle) {
 	return sfh.last_modified;
 }
 
+string HTTPFileSystem::GetVersionTag(FileHandle &handle) {
+	auto &sfh = handle.Cast<HTTPFileHandle>();
+	return sfh.etag;
+}
+
 bool HTTPFileSystem::FileExists(const string &filename, optional_ptr<FileOpener> opener) {
 	try {
 		auto handle = OpenFile(filename, FileFlags::FILE_FLAGS_READ, opener);
@@ -729,6 +734,7 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 		if (found) {
 			last_modified = value.last_modified;
 			length = value.length;
+			etag = value.etag;
 
 			if (flags.OpenForReading()) {
 				read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[READ_BUFFER_LEN]);
@@ -815,9 +821,12 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 			last_modified = mktime(&tm);
 		}
 	}
+	if (!res->headers["Etag"].empty()) {
+		etag = res->headers["Etag"];
+	}
 
 	if (should_write_cache) {
-		current_cache->Insert(path, {length, last_modified});
+		current_cache->Insert(path, {length, last_modified, etag});
 	}
 }
 

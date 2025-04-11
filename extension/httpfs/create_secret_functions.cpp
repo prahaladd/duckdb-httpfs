@@ -116,10 +116,12 @@ unique_ptr<BaseSecret> CreateS3SecretFunctions::CreateSecretFunctionInternal(Cli
 	return std::move(secret);
 }
 
-CreateSecretInfo CreateS3SecretFunctions::GenerateRefreshSecretInfo(const SecretEntry &secret_entry, Value &refresh_info) {
+CreateSecretInput CreateS3SecretFunctions::GenerateRefreshSecretInfo(const SecretEntry &secret_entry, Value &refresh_info) {
 	const auto &kv_secret = dynamic_cast<const KeyValueSecret&>(*secret_entry.secret);
 
-	CreateSecretInfo result(OnCreateConflict::REPLACE_ON_CONFLICT, secret_entry.persist_type);
+	CreateSecretInput result;
+	result.on_conflict = OnCreateConflict::REPLACE_ON_CONFLICT;
+	result.persist_type = SecretPersistType::TEMPORARY;
 
 	result.type = kv_secret.GetType();
 	result.name = kv_secret.GetName();

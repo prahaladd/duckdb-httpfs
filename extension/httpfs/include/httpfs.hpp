@@ -103,6 +103,7 @@ public:
 	FileOpenFlags flags;
 	idx_t length;
 	time_t last_modified;
+	string etag;
 
 	// When using full file download, the full file will be written to a cached file handle
 	unique_ptr<CachedFileHandle> cached_file_handle;
@@ -183,6 +184,7 @@ public:
 	void FileSync(FileHandle &handle) override;
 	int64_t GetFileSize(FileHandle &handle) override;
 	time_t GetLastModifiedTime(FileHandle &handle) override;
+	string GetVersionTag(FileHandle &handle) override;
 	bool FileExists(const string &filename, optional_ptr<FileOpener> opener) override;
 	void Seek(FileHandle &handle, idx_t location) override;
 	idx_t SeekPosition(FileHandle &handle) override;
