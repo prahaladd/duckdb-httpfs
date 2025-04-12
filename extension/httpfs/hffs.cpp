@@ -201,7 +201,7 @@ end:
 // - hf://datasets/lhoestq/demo1/default/train/*.parquet
 // - hf://datasets/lhoestq/demo1/*/train/file_[abc].parquet
 // - hf://datasets/lhoestq/demo1/**/train/*.parquet
-vector<string> HuggingFaceFileSystem::Glob(const string &path, FileOpener *opener) {
+vector<OpenFileInfo> HuggingFaceFileSystem::Glob(const string &path, FileOpener *opener) {
 	// Ensure the glob pattern is a valid HF url
 	auto parsed_glob_url = HFUrlParse(path);
 	auto first_wildcard_pos = parsed_glob_url.path.find_first_of("*[\\");
@@ -251,7 +251,7 @@ vector<string> HuggingFaceFileSystem::Glob(const string &path, FileOpener *opene
 	}
 
 	vector<string> pattern_splits = StringUtil::Split(parsed_glob_url.path, "/");
-	vector<string> result;
+	vector<OpenFileInfo> result;
 	for (const auto &file : files) {
 
 		vector<string> file_splits = StringUtil::Split(file, "/");

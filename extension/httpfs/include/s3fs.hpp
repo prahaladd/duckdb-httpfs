@@ -218,7 +218,7 @@ public:
 	// Note: caller is responsible to not call this method twice on the same buffer
 	static void UploadBuffer(S3FileHandle &file_handle, shared_ptr<S3WriteBuffer> write_buffer);
 
-	vector<string> Glob(const string &glob_pattern, FileOpener *opener = nullptr) override;
+	vector<OpenFileInfo> Glob(const string &glob_pattern, FileOpener *opener = nullptr) override;
 	bool ListFiles(const string &directory, const std::function<void(const string &, bool)> &callback,
 	               FileOpener *opener = nullptr) override;
 
@@ -246,7 +246,7 @@ protected:
 struct AWSListObjectV2 {
 	static string Request(string &path, HTTPParams &http_params, S3AuthParams &s3_auth_params,
 	                      string &continuation_token, optional_ptr<HTTPState> state, bool use_delimiter = false);
-	static void ParseKey(string &aws_response, vector<string> &result);
+	static void ParseFileList(string &aws_response, vector<OpenFileInfo> &result);
 	static vector<string> ParseCommonPrefix(string &aws_response);
 	static string ParseContinuationToken(string &aws_response);
 };

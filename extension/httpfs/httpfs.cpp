@@ -707,6 +707,23 @@ void HTTPFileHandle::FullDownload(HTTPFileSystem &hfs, bool &should_write_cache)
 	}
 }
 
+bool HTTPFileSystem::TryParseLastModifiedTime(const string &timestamp, time_t &result) {
+	StrpTimeFormat::ParseResult parse_result;
+	if (!StrpTimeFormat::TryParse("%a, %d %h %Y %T %Z", timestamp, parse_result)) {
+		return false;
+	}
+	struct tm tm {};
+	tm.tm_year = parse_result.data[0] - 1900;
+	tm.tm_mon = parse_result.data[1] - 1;
+	tm.tm_mday = parse_result.data[2];
+	tm.tm_hour = parse_result.data[3];
+	tm.tm_min = parse_result.data[4];
+	tm.tm_sec = parse_result.data[5];
+	tm.tm_isdst = 0;
+	result = mktime(&tm);
+	return true;
+}
+
 void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 	auto &hfs = file_system.Cast<HTTPFileSystem>();
 	state = HTTPState::TryGetState(opener);
@@ -808,18 +825,7 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 		FullDownload(hfs, should_write_cache);
 	}
 	if (!res->headers["Last-Modified"].empty()) {
-		StrpTimeFormat::ParseResult result;
-		if (StrpTimeFormat::TryParse("%a, %d %h %Y %T %Z", res->headers["Last-Modified"], result)) {
-			struct tm tm {};
-			tm.tm_year = result.data[0] - 1900;
-			tm.tm_mon = result.data[1] - 1;
-			tm.tm_mday = result.data[2];
-			tm.tm_hour = result.data[3];
-			tm.tm_min = result.data[4];
-			tm.tm_sec = result.data[5];
-			tm.tm_isdst = 0;
-			last_modified = mktime(&tm);
-		}
+		HTTPFileSystem::TryParseLastModifiedTime(res->headers["Last-Modified"], last_modified);
 	}
 	if (!res->headers["Etag"].empty()) {
 		etag = res->headers["Etag"];
