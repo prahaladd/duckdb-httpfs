@@ -288,19 +288,19 @@ unique_ptr<ResponseWrapper> HuggingFaceFileSystem::GetRangeRequest(FileHandle &h
 	return HTTPFileSystem::GetRangeRequest(handle, http_url, header_map, file_offset, buffer_out, buffer_out_len);
 }
 
-unique_ptr<HTTPFileHandle> HuggingFaceFileSystem::CreateHandle(const string &path, FileOpenFlags flags,
+unique_ptr<HTTPFileHandle> HuggingFaceFileSystem::CreateHandle(const OpenFileInfo &file, FileOpenFlags flags,
                                                                optional_ptr<FileOpener> opener) {
 	D_ASSERT(flags.Compression() == FileCompressionType::UNCOMPRESSED);
 
-	auto parsed_url = HFUrlParse(path);
+	auto parsed_url = HFUrlParse(file.path);
 
 	FileOpenerInfo info;
-	info.file_path = path;
+	info.file_path = file.path;
 
 	auto params = HTTPParams::ReadFrom(opener, info);
-	SetParams(params, path, opener);
+	SetParams(params, file.path, opener);
 
-	return duckdb::make_uniq<HFFileHandle>(*this, std::move(parsed_url), path, flags, params);
+	return duckdb::make_uniq<HFFileHandle>(*this, std::move(parsed_url), file, flags, params);
 }
 
 void HuggingFaceFileSystem::SetParams(HTTPParams &params, const string &path, optional_ptr<FileOpener> opener) {

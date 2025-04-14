@@ -715,16 +715,16 @@ unique_ptr<ResponseWrapper> S3FileSystem::DeleteRequest(FileHandle &handle, stri
 	return HTTPFileSystem::DeleteRequest(handle, http_url, headers);
 }
 
-unique_ptr<HTTPFileHandle> S3FileSystem::CreateHandle(const string &path, FileOpenFlags flags,
+unique_ptr<HTTPFileHandle> S3FileSystem::CreateHandle(const OpenFileInfo &file, FileOpenFlags flags,
                                                       optional_ptr<FileOpener> opener) {
-	FileOpenerInfo info = {path};
+	FileOpenerInfo info = {file.path};
 	S3AuthParams auth_params = S3AuthParams::ReadFrom(opener, info);
 
 	// Scan the query string for any s3 authentication parameters
-	auto parsed_s3_url = S3UrlParse(path, auth_params);
+	auto parsed_s3_url = S3UrlParse(file.path, auth_params);
 	ReadQueryParams(parsed_s3_url.query_param, auth_params);
 
-	return duckdb::make_uniq<S3FileHandle>(*this, path, flags, HTTPParams::ReadFrom(opener, info), auth_params,
+	return duckdb::make_uniq<S3FileHandle>(*this, file, flags, HTTPParams::ReadFrom(opener, info), auth_params,
 	                                       S3ConfigParams::ReadFrom(opener));
 }
 
@@ -1190,12 +1190,13 @@ void AWSListObjectV2::ParseFileList(string &aws_response, vector<OpenFileInfo> &
 		auto etag_pos = FindTagContents(contents, "ETag", 0, etag);
 		if (etag_pos.IsValid()) {
 			etag = StringUtil::Replace(etag, "&quot;", "\"");
-			extra_info->options["etag"] = Value(etag);
+			extra_info->options["etag"] = Value(std::move(etag));
 		}
 		auto size_pos = FindTagContents(contents, "Size", 0, size);
 		if (size_pos.IsValid()) {
 			extra_info->options["file_size"] = Value(size).DefaultCastAs(LogicalType::UBIGINT);
 		}
+		result_file.extended_info = std::move(extra_info);
 		result.push_back(std::move(result_file));
 	}
 }
