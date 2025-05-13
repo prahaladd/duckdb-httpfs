@@ -24,8 +24,8 @@
 namespace duckdb {
 
 static HTTPHeaders create_s3_header(string url, string query, string host, string service, string method,
-                                  const S3AuthParams &auth_params, string date_now = "", string datetime_now = "",
-                                  string payload_hash = "", string content_type = "") {
+                                    const S3AuthParams &auth_params, string date_now = "", string datetime_now = "",
+                                    string payload_hash = "", string content_type = "") {
 
 	HTTPHeaders res;
 	res["Host"] = host;
@@ -285,12 +285,11 @@ string S3FileSystem::InitializeMultipartUpload(S3FileHandle &file_handle) {
 	// AWS response is around 300~ chars in docs so this should be enough to not need a resize
 	string result;
 	string query_param = "uploads=";
-	auto res = s3fs.PostRequest(file_handle, file_handle.path, {}, result, nullptr, 0,
-	                            query_param);
+	auto res = s3fs.PostRequest(file_handle, file_handle.path, {}, result, nullptr, 0, query_param);
 
 	if (res->status != HTTPStatusCode::OK_200) {
 		throw HTTPException(*res, "Unable to connect to URL %s: %s (HTTP code %d)", res->url, res->GetError(),
-							static_cast<int>(res->status));
+		                    static_cast<int>(res->status));
 	}
 
 	auto open_tag_pos = result.find("<UploadId>", 0);
@@ -450,12 +449,12 @@ void S3FileSystem::FinalizeMultipartUpload(S3FileHandle &file_handle) {
 	string result;
 
 	string query_param = "uploadId=" + S3FileSystem::UrlEncode(file_handle.multipart_upload_id, true);
-	auto res = s3fs.PostRequest(file_handle, file_handle.path, {}, result,
-	                            (char *)body.c_str(), body.length(), query_param);
+	auto res =
+	    s3fs.PostRequest(file_handle, file_handle.path, {}, result, (char *)body.c_str(), body.length(), query_param);
 	auto open_tag_pos = result.find("<CompleteMultipartUploadResult", 0);
 	if (open_tag_pos == string::npos) {
-		throw HTTPException(*res, "Unexpected response during S3 multipart upload finalization: %d\n\n%s", static_cast<int>(res->status),
-		                    result);
+		throw HTTPException(*res, "Unexpected response during S3 multipart upload finalization: %d\n\n%s",
+		                    static_cast<int>(res->status), result);
 	}
 }
 
@@ -636,8 +635,8 @@ string ParsedS3Url::GetHTTPUrl(S3AuthParams &auth_params, const string &http_que
 }
 
 unique_ptr<HTTPResponse> S3FileSystem::PostRequest(FileHandle &handle, string url, HTTPHeaders header_map,
-                                                      string &result,
-                                                      char *buffer_in, idx_t buffer_in_len, string http_params) {
+                                                   string &result, char *buffer_in, idx_t buffer_in_len,
+                                                   string http_params) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(url, auth_params);
 	string http_url = parsed_s3_url.GetHTTPUrl(auth_params, http_params);
@@ -649,7 +648,7 @@ unique_ptr<HTTPResponse> S3FileSystem::PostRequest(FileHandle &handle, string ur
 }
 
 unique_ptr<HTTPResponse> S3FileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
-                                                     char *buffer_in, idx_t buffer_in_len, string http_params) {
+                                                  char *buffer_in, idx_t buffer_in_len, string http_params) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(url, auth_params);
 	string http_url = parsed_s3_url.GetHTTPUrl(auth_params, http_params);
@@ -680,7 +679,7 @@ unique_ptr<HTTPResponse> S3FileSystem::GetRequest(FileHandle &handle, string s3_
 }
 
 unique_ptr<HTTPResponse> S3FileSystem::GetRangeRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map,
-                                                          idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
+                                                       idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
 	auto auth_params = handle.Cast<S3FileHandle>().auth_params;
 	auto parsed_s3_url = S3UrlParse(s3_url, auth_params);
 	string http_url = parsed_s3_url.GetHTTPUrl(auth_params);
@@ -773,7 +772,8 @@ void S3FileSystem::RemoveFile(const string &path, optional_ptr<FileOpener> opene
 	auto &s3fh = handle->Cast<S3FileHandle>();
 	auto res = DeleteRequest(*handle, s3fh.path, {});
 	if (res->status != HTTPStatusCode::OK_200 && res->status != HTTPStatusCode::NoContent_204) {
-		throw IOException("Could not remove file \"%s\": %s", {{"errno", to_string(static_cast<int>(res->status))}}, path, res->GetError());
+		throw IOException("Could not remove file \"%s\": %s", {{"errno", to_string(static_cast<int>(res->status))}},
+		                  path, res->GetError());
 	}
 }
 
@@ -784,7 +784,7 @@ void S3FileSystem::RemoveDirectory(const string &path, optional_ptr<FileOpener> 
 		    try {
 			    this->RemoveFile(file, opener);
 		    } catch (IOException &e) {
-				string errmsg(e.what());
+			    string errmsg(e.what());
 			    if (errmsg.find("No such file or directory") != std::string::npos) {
 				    return;
 			    }
@@ -965,6 +965,27 @@ bool S3FileSystem::ListFiles(const string &directory, const std::function<void(c
 	return true;
 }
 
+HTTPException S3FileSystem::GetS3Error(S3AuthParams &s3_auth_params, const HTTPResponse &response, const string &url) {
+	string region = s3_auth_params.region;
+	string extra_text = "\n\nAuthentication Failure - this is usually caused by invalid or missing credentials.";
+	if (s3_auth_params.secret_access_key.empty() && s3_auth_params.access_key_id.empty()) {
+		extra_text += "\n* No credentials are provided.";
+	} else {
+		extra_text += "\n* Credentials are provided, but they did not work.";
+	}
+	extra_text += "\n* See https://duckdb.org/docs/stable/extensions/httpfs/s3api.html";
+	auto status_message = HTTPFSUtil::GetStatusMessage(response.status);
+	throw HTTPException(response, "HTTP GET error reading '%s' in region '%s' (HTTP %d %s)%s", url,
+	                    s3_auth_params.region, response.status, status_message, extra_text);
+}
+
+HTTPException S3FileSystem::GetHTTPError(FileHandle &handle, const HTTPResponse &response, const string &url) {
+	if (response.status == HTTPStatusCode::Forbidden_403) {
+		auto &s3_handle = handle.Cast<S3FileHandle>();
+		return GetS3Error(s3_handle.auth_params, response, url);
+	}
+	return HTTPFileSystem::GetHTTPError(handle, response, url);
+}
 string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthParams &s3_auth_params,
                                 string &continuation_token, optional_ptr<HTTPState> state, bool use_delimiter) {
 	auto parsed_url = S3FileSystem::S3UrlParse(path, s3_auth_params);
@@ -992,10 +1013,14 @@ string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthP
 	// Get requests use fresh connection
 	auto client = http_params.http_util->InitializeClient(http_params, parsed_url.http_proto + parsed_url.host);
 	std::stringstream response;
-	GetRequestInfo get_request(parsed_url.host, listobjectv2_url, header_map, http_params,
+	GetRequestInfo get_request(
+	    parsed_url.host, listobjectv2_url, header_map, http_params,
 	    [&](const HTTPResponse &response) {
 		    if (static_cast<int>(response.status) >= 400) {
-			    throw HTTPException(response, "HTTP GET error on '%s' (HTTP %d)", listobjectv2_url, response.status);
+			    string trimmed_path = path;
+			    StringUtil::RTrim(trimmed_path, "/");
+			    trimmed_path += listobjectv2_url;
+			    throw S3FileSystem::GetS3Error(s3_auth_params, response, trimmed_path);
 		    }
 		    return true;
 	    },
@@ -1021,12 +1046,12 @@ optional_idx FindTagContents(const string &response, const string &tag, idx_t cu
 	}
 	auto close_tag_pos = response.find(close_tag, open_tag_pos + open_tag.size());
 	if (close_tag_pos == string::npos) {
-		throw InternalException("Failed to parse S3 result: found open tag for %s but did not find matching close tag", tag);
+		throw InternalException("Failed to parse S3 result: found open tag for %s but did not find matching close tag",
+		                        tag);
 	}
 	result = response.substr(open_tag_pos + open_tag.size(), close_tag_pos - open_tag_pos - open_tag.size());
 	return close_tag_pos + close_tag.size();
 }
-
 
 void AWSListObjectV2::ParseFileList(string &aws_response, vector<OpenFileInfo> &result) {
 	// Example S3 response:
@@ -1038,7 +1063,7 @@ void AWSListObjectV2::ParseFileList(string &aws_response, vector<OpenFileInfo> &
 	//		<StorageClass>STANDARD</StorageClass>
 	//	</Contents>
 	idx_t cur_pos = 0;
-	while(true) {
+	while (true) {
 		string contents;
 		auto next_pos = FindTagContents(aws_response, "Contents", cur_pos, contents);
 		if (!next_pos.IsValid()) {
