@@ -171,7 +171,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 					error += " This could mean the file was changed. Try disabling the duckdb http metadata cache "
 					         "if enabled, and confirm the server supports range requests.";
 				}
-				throw IOException(error);
+				throw HTTPException(error);
 			}
 			return true;
 		},
@@ -230,8 +230,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 				if (response.HasHeader("Content-Length")) {
 					auto content_length = stoll(response.GetHeaderValue("Content-Length"));
 					if ((idx_t)content_length != buffer_out_len) {
-						throw IOException("HTTP GET error: Content-Length from server mismatches requested "
-						                  "range, server may not support range requests.");
+						throw HTTPException("HTTP GET error: Content-Length from server mismatches requested "
+						                    "range, server may not support range requests.");
 					}
 				}
 			}
@@ -245,8 +245,8 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 					// behaviour, so we have to improve logic elsewhere to properly handle this case.
 
 					// To avoid corruption of memory, we bail out.
-					throw IOException("Server sent back more data than expected, `SET force_download=true` might "
-					                  "help in this case");
+					throw HTTPException("Server sent back more data than expected, `SET force_download=true` might "
+					                    "help in this case");
 				}
 				memcpy(buffer_out + out_offset, data, data_length);
 				out_offset += data_length;
