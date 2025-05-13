@@ -27,6 +27,7 @@ public:
 	unique_ptr<HTTPClient> InitializeClient(HTTPParams &http_params, const string &proto_host_port) override;
 
 	static unordered_map<string, string> ParseGetParameters(const string &text);
+	static string GetStatusMessage(HTTPStatusCode status);
 };
 
-}
+} // namespace duckdb

@@ -178,15 +178,13 @@ public:
 	duckdb::unique_ptr<HTTPResponse> HeadRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map) override;
 	duckdb::unique_ptr<HTTPResponse> GetRequest(FileHandle &handle, string url, HTTPHeaders header_map) override;
 	duckdb::unique_ptr<HTTPResponse> GetRangeRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map,
-	                                                    idx_t file_offset, char *buffer_out,
-	                                                    idx_t buffer_out_len) override;
+	                                                 idx_t file_offset, char *buffer_out,
+	                                                 idx_t buffer_out_len) override;
 	duckdb::unique_ptr<HTTPResponse> PostRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map,
-	                                                string &buffer_out,
-	                                                char *buffer_in, idx_t buffer_in_len,
-	                                                string http_params = "") override;
+	                                             string &buffer_out, char *buffer_in, idx_t buffer_in_len,
+	                                             string http_params = "") override;
 	duckdb::unique_ptr<HTTPResponse> PutRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map,
-	                                               char *buffer_in, idx_t buffer_in_len,
-	                                               string http_params = "") override;
+	                                            char *buffer_in, idx_t buffer_in_len, string http_params = "") override;
 	duckdb::unique_ptr<HTTPResponse> DeleteRequest(FileHandle &handle, string s3_url, HTTPHeaders header_map) override;
 
 	bool CanHandleFile(const string &fpath) override;
@@ -225,6 +223,8 @@ public:
 		return true;
 	}
 
+	static HTTPException GetS3Error(S3AuthParams &s3_auth_params, const HTTPResponse &response, const string &url);
+
 protected:
 	static void NotifyUploadsInProgress(S3FileHandle &file_handle);
 	duckdb::unique_ptr<HTTPFileHandle> CreateHandle(const OpenFileInfo &file, FileOpenFlags flags,
@@ -232,6 +232,8 @@ protected:
 
 	void FlushBuffer(S3FileHandle &handle, shared_ptr<S3WriteBuffer> write_buffer);
 	string GetPayloadHash(char *buffer, idx_t buffer_len);
+
+	HTTPException GetHTTPError(FileHandle &, const HTTPResponse &response, const string &url) override;
 };
 
 // Helper class to do s3 ListObjectV2 api call https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html

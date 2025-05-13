@@ -27,8 +27,8 @@ public:
 	duckdb::unique_ptr<HTTPResponse> HeadRequest(FileHandle &handle, string hf_url, HTTPHeaders header_map) override;
 	duckdb::unique_ptr<HTTPResponse> GetRequest(FileHandle &handle, string hf_url, HTTPHeaders header_map) override;
 	duckdb::unique_ptr<HTTPResponse> GetRangeRequest(FileHandle &handle, string hf_url, HTTPHeaders header_map,
-	                                                    idx_t file_offset, char *buffer_out,
-	                                                    idx_t buffer_out_len) override;
+	                                                 idx_t file_offset, char *buffer_out,
+	                                                 idx_t buffer_out_len) override;
 
 	bool CanHandleFile(const string &fpath) override {
 		return fpath.rfind("hf://", 0) == 0;

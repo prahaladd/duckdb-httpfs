@@ -35,8 +35,8 @@ public:
 	size_t Finalize(data_ptr_t out, idx_t out_len, data_ptr_t tag, idx_t tag_len) override;
 	void GenerateRandomData(data_ptr_t data, idx_t len) override;
 
-        const EVP_CIPHER *GetCipher(const string &key);
-        size_t FinalizeGCM(data_ptr_t out, idx_t out_len, data_ptr_t tag, idx_t tag_len);
+	const EVP_CIPHER *GetCipher(const string &key);
+	size_t FinalizeGCM(data_ptr_t out, idx_t out_len, data_ptr_t tag, idx_t tag_len);
 
 private:
 	EVP_CIPHER_CTX *context;

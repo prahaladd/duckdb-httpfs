@@ -68,20 +68,16 @@ HTTPFSParams HTTPFSParams::ReadFrom(optional_ptr<FileOpener> opener, optional_pt
 		}
 	}
 
-
 	string proxy_setting;
-	if (settings_reader.TryGetSecretKey<string>("http_proxy", proxy_setting) &&
-	    !proxy_setting.empty()) {
+	if (settings_reader.TryGetSecretKey<string>("http_proxy", proxy_setting) && !proxy_setting.empty()) {
 		idx_t port;
 		string host;
 		HTTPUtil::ParseHTTPProxyHost(proxy_setting, host, port);
 		result.http_proxy = host;
 		result.http_proxy_port = port;
 	}
-	settings_reader.TryGetSecretKey<string>("http_proxy_username",
-	                                                 result.http_proxy_username);
-	settings_reader.TryGetSecretKey<string>("http_proxy_password",
-	                                                 result.http_proxy_password);
+	settings_reader.TryGetSecretKey<string>("http_proxy_username", result.http_proxy_username);
+	settings_reader.TryGetSecretKey<string>("http_proxy_password", result.http_proxy_password);
 	settings_reader.TryGetSecretKey<string>("bearer_token", result.bearer_token);
 
 	Value extra_headers;
@@ -114,8 +110,8 @@ void HTTPClientCache::StoreClient(unique_ptr<HTTPClient> client) {
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string url, HTTPHeaders header_map,
-                                                        string &buffer_out,
-                                                        char *buffer_in, idx_t buffer_in_len, string params) {
+                                                     string &buffer_out, char *buffer_in, idx_t buffer_in_len,
+                                                     string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	auto &http_util = *hfh.http_params.http_util;
 	PostRequestInfo post_request(url, header_map, hfh.http_params, const_data_ptr_cast(buffer_in), buffer_in_len);
@@ -125,11 +121,12 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
-                                                       char *buffer_in, idx_t buffer_in_len, string params) {
+                                                    char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	auto &http_util = *hfh.http_params.http_util;
 	string content_type = "application/octet-stream";
-	PutRequestInfo put_request(url, header_map, hfh.http_params, (const_data_ptr_t) buffer_in, buffer_in_len, content_type);
+	PutRequestInfo put_request(url, header_map, hfh.http_params, (const_data_ptr_t)buffer_in, buffer_in_len,
+	                           content_type);
 	return http_util.Request(put_request);
 }
 
@@ -156,6 +153,17 @@ unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, strin
 	return response;
 }
 
+HTTPException HTTPFileSystem::GetHTTPError(FileHandle &, const HTTPResponse &response, const string &url) {
+	auto status_message = HTTPFSUtil::GetStatusMessage(response.status);
+	string error = "HTTP GET error on '" + url + "' (HTTP " + to_string(static_cast<int>(response.status)) + " " +
+	               status_message + ")";
+	if (response.status == HTTPStatusCode::RangeNotSatisfiable_416) {
+		error += " This could mean the file was changed. Try disabling the duckdb http metadata cache "
+		         "if enabled, and confirm the server supports range requests.";
+	}
+	return HTTPException(response, error);
+}
+
 unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	auto &http_util = *hfh.http_params.http_util;
@@ -163,38 +171,40 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 	D_ASSERT(hfh.cached_file_handle);
 
 	auto http_client = hfh.GetClient();
-	GetRequestInfo get_request(url, header_map, hfh.http_params,
-		[&](const HTTPResponse &response) {
-			if (static_cast<int>(response.status) >= 400) {
-				string error = "HTTP GET error on '" + url + "' (HTTP " + to_string(static_cast<int>(response.status)) + ")";
-				if (response.status == HTTPStatusCode::RangeNotSatisfiable_416) {
-					error += " This could mean the file was changed. Try disabling the duckdb http metadata cache "
-					         "if enabled, and confirm the server supports range requests.";
-				}
-				throw HTTPException(error);
-			}
-			return true;
-		},
-		[&](const_data_ptr_t data, idx_t data_length) {
-			if (!hfh.cached_file_handle->GetCapacity()) {
-				hfh.cached_file_handle->AllocateBuffer(data_length);
-				hfh.length = data_length;
-				hfh.cached_file_handle->Write(const_char_ptr_cast(data), data_length);
-			} else {
-				auto new_capacity = hfh.cached_file_handle->GetCapacity();
-				while (new_capacity < hfh.length + data_length) {
-					new_capacity *= 2;
-				}
-				// Grow buffer when running out of space
-				if (new_capacity != hfh.cached_file_handle->GetCapacity()) {
-					hfh.cached_file_handle->GrowBuffer(new_capacity, hfh.length);
-				}
-				// We can just copy stuff
-				hfh.cached_file_handle->Write(const_char_ptr_cast(data), data_length, hfh.length);
-				hfh.length += data_length;
-			}
-			return true;
-		});
+	GetRequestInfo get_request(
+	    url, header_map, hfh.http_params,
+	    [&](const HTTPResponse &response) {
+		    if (static_cast<int>(response.status) >= 400) {
+			    string error =
+			        "HTTP GET error on '" + url + "' (HTTP " + to_string(static_cast<int>(response.status)) + ")";
+			    if (response.status == HTTPStatusCode::RangeNotSatisfiable_416) {
+				    error += " This could mean the file was changed. Try disabling the duckdb http metadata cache "
+				             "if enabled, and confirm the server supports range requests.";
+			    }
+			    throw HTTPException(error);
+		    }
+		    return true;
+	    },
+	    [&](const_data_ptr_t data, idx_t data_length) {
+		    if (!hfh.cached_file_handle->GetCapacity()) {
+			    hfh.cached_file_handle->AllocateBuffer(data_length);
+			    hfh.length = data_length;
+			    hfh.cached_file_handle->Write(const_char_ptr_cast(data), data_length);
+		    } else {
+			    auto new_capacity = hfh.cached_file_handle->GetCapacity();
+			    while (new_capacity < hfh.length + data_length) {
+				    new_capacity *= 2;
+			    }
+			    // Grow buffer when running out of space
+			    if (new_capacity != hfh.cached_file_handle->GetCapacity()) {
+				    hfh.cached_file_handle->GrowBuffer(new_capacity, hfh.length);
+			    }
+			    // We can just copy stuff
+			    hfh.cached_file_handle->Write(const_char_ptr_cast(data), data_length, hfh.length);
+			    hfh.length += data_length;
+		    }
+		    return true;
+	    });
 
 	auto response = http_util.Request(get_request, http_client);
 
@@ -203,7 +213,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 }
 
 unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, string url, HTTPHeaders header_map,
-                                                            idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
+                                                         idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
 	auto &http_util = *hfh.http_params.http_util;
 
@@ -215,44 +225,46 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, str
 
 	idx_t out_offset = 0;
 
-	GetRequestInfo get_request(url, header_map, hfh.http_params,
-		[&](const HTTPResponse &response) {
-			if (static_cast<int>(response.status) >= 400) {
-				string error = "HTTP GET error on '" + url + "' (HTTP " + to_string(static_cast<int>(response.status)) + ")";
-				if (response.status == HTTPStatusCode::RangeNotSatisfiable_416) {
-					error += " This could mean the file was changed. Try disabling the duckdb http metadata cache "
-					         "if enabled, and confirm the server supports range requests.";
-				}
-				throw HTTPException(response, error);
-			}
-			if (static_cast<int>(response.status) < 300) { // done redirecting
-				out_offset = 0;
-				if (response.HasHeader("Content-Length")) {
-					auto content_length = stoll(response.GetHeaderValue("Content-Length"));
-					if ((idx_t)content_length != buffer_out_len) {
-						throw HTTPException("HTTP GET error: Content-Length from server mismatches requested "
-						                    "range, server may not support range requests.");
-					}
-				}
-			}
-			return true;
-		},
-		[&](const_data_ptr_t data, idx_t data_length) {
-			if (buffer_out != nullptr) {
-				if (data_length + out_offset > buffer_out_len) {
-					// As of v0.8.2-dev4424 we might end up here when very big files are served from servers
-					// that returns more data than requested via range header. This is an uncommon but legal
-					// behaviour, so we have to improve logic elsewhere to properly handle this case.
+	GetRequestInfo get_request(
+	    url, header_map, hfh.http_params,
+	    [&](const HTTPResponse &response) {
+		    if (static_cast<int>(response.status) >= 400) {
+			    string error =
+			        "HTTP GET error on '" + url + "' (HTTP " + to_string(static_cast<int>(response.status)) + ")";
+			    if (response.status == HTTPStatusCode::RangeNotSatisfiable_416) {
+				    error += " This could mean the file was changed. Try disabling the duckdb http metadata cache "
+				             "if enabled, and confirm the server supports range requests.";
+			    }
+			    throw HTTPException(response, error);
+		    }
+		    if (static_cast<int>(response.status) < 300) { // done redirecting
+			    out_offset = 0;
+			    if (response.HasHeader("Content-Length")) {
+				    auto content_length = stoll(response.GetHeaderValue("Content-Length"));
+				    if ((idx_t)content_length != buffer_out_len) {
+					    throw HTTPException("HTTP GET error: Content-Length from server mismatches requested "
+					                        "range, server may not support range requests.");
+				    }
+			    }
+		    }
+		    return true;
+	    },
+	    [&](const_data_ptr_t data, idx_t data_length) {
+		    if (buffer_out != nullptr) {
+			    if (data_length + out_offset > buffer_out_len) {
+				    // As of v0.8.2-dev4424 we might end up here when very big files are served from servers
+				    // that returns more data than requested via range header. This is an uncommon but legal
+				    // behaviour, so we have to improve logic elsewhere to properly handle this case.
 
-					// To avoid corruption of memory, we bail out.
-					throw HTTPException("Server sent back more data than expected, `SET force_download=true` might "
-					                    "help in this case");
-				}
-				memcpy(buffer_out + out_offset, data, data_length);
-				out_offset += data_length;
-			}
-			return true;
-		});
+				    // To avoid corruption of memory, we bail out.
+				    throw HTTPException("Server sent back more data than expected, `SET force_download=true` might "
+				                        "help in this case");
+			    }
+			    memcpy(buffer_out + out_offset, data, data_length);
+			    out_offset += data_length;
+		    }
+		    return true;
+	    });
 
 	auto response = http_util.Request(get_request, http_client);
 
@@ -273,9 +285,10 @@ void TimestampToTimeT(timestamp_t timestamp, time_t &result) {
 	result = mktime(&tm);
 }
 
-HTTPFileHandle::HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, HTTPFSParams http_params_p)
-    : FileHandle(fs, file.path, flags), http_params(std::move(http_params_p)), flags(flags), length(0), buffer_available(0),
-      buffer_idx(0), file_offset(0), buffer_start(0), buffer_end(0) {
+HTTPFileHandle::HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags,
+                               HTTPFSParams http_params_p)
+    : FileHandle(fs, file.path, flags), http_params(std::move(http_params_p)), flags(flags), length(0),
+      buffer_available(0), buffer_idx(0), file_offset(0), buffer_start(0), buffer_end(0) {
 	// check if the handle has extended properties that can be set directly in the handle
 	// if we have these properties we don't need to do a head request to obtain them later
 	if (file.extended_info) {
@@ -321,7 +334,7 @@ unique_ptr<HTTPFileHandle> HTTPFileSystem::CreateHandle(const OpenFileInfo &file
 }
 
 unique_ptr<FileHandle> HTTPFileSystem::OpenFileExtended(const OpenFileInfo &file, FileOpenFlags flags,
-                                                optional_ptr<FileOpener> opener) {
+                                                        optional_ptr<FileOpener> opener) {
 	D_ASSERT(flags.Compression() == FileCompressionType::UNCOMPRESSED);
 
 	if (flags.ReturnNullIfNotExists()) {
@@ -383,7 +396,7 @@ void HTTPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, id
 		hfh.buffer_idx = 0;
 	}
 
-	idx_t start_offset = location;  // Start file offset to read from.
+	idx_t start_offset = location; // Start file offset to read from.
 	while (to_read > 0) {
 		auto buffer_read_len = MinValue<idx_t>(hfh.buffer_available, to_read);
 		if (buffer_read_len > 0) {
@@ -409,8 +422,7 @@ void HTTPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, id
 				start_offset += to_read;
 				break;
 			} else {
-				GetRangeRequest(hfh, hfh.path, {}, start_offset, (char *)hfh.read_buffer.get(),
-				                new_buffer_available);
+				GetRangeRequest(hfh, hfh.path, {}, start_offset, (char *)hfh.read_buffer.get(), new_buffer_available);
 				hfh.buffer_available = new_buffer_available;
 				hfh.buffer_idx = 0;
 				hfh.buffer_start = start_offset;
@@ -563,7 +575,7 @@ optional_idx TryParseContentRange(const HTTPHeaders &headers) {
 	}
 	try {
 		return std::stoull(range_length);
-	} catch(...) {
+	} catch (...) {
 		return optional_idx();
 	}
 }
@@ -575,7 +587,7 @@ optional_idx TryParseContentLength(const HTTPHeaders &headers) {
 	string content_length = headers.GetHeaderValue("Content-Length");
 	try {
 		return std::stoull(content_length);
-	} catch(...) {
+	} catch (...) {
 		return optional_idx();
 	}
 }
@@ -599,9 +611,11 @@ void HTTPFileHandle::LoadFileInfo() {
 			// HEAD request fail, use Range request for another try (read only one byte)
 			if (flags.OpenForReading() && res->status != HTTPStatusCode::NotFound_404) {
 				auto range_res = hfs.GetRangeRequest(*this, path, {}, 0, nullptr, 2);
-				if (range_res->status != HTTPStatusCode::PartialContent_206 && range_res->status != HTTPStatusCode::Accepted_202 && range_res->status != HTTPStatusCode::OK_200) {
+				if (range_res->status != HTTPStatusCode::PartialContent_206 &&
+				    range_res->status != HTTPStatusCode::Accepted_202 && range_res->status != HTTPStatusCode::OK_200) {
 					// It failed again
-					throw HTTPException(*range_res, "Unable to connect to URL \"%s\": %d (%s).", path, static_cast<int>(res->status), res->GetError());
+					throw HTTPException(*range_res, "Unable to connect to URL \"%s\": %d (%s).", path,
+					                    static_cast<int>(res->status), res->GetError());
 				}
 				res = std::move(range_res);
 			} else {
@@ -637,49 +651,49 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 
 	auto current_cache = TryGetMetadataCache(opener, hfs);
 
-    bool should_write_cache = false;
+	bool should_write_cache = false;
 	if (flags.OpenForReading()) {
-        if (http_params.force_download) {
-            FullDownload(hfs, should_write_cache);
-            return;
-        }
+		if (http_params.force_download) {
+			FullDownload(hfs, should_write_cache);
+			return;
+		}
 
-        if (current_cache) {
-            HTTPMetadataCacheEntry value;
-            bool found = current_cache->Find(path, value);
+		if (current_cache) {
+			HTTPMetadataCacheEntry value;
+			bool found = current_cache->Find(path, value);
 
-            if (found) {
-                last_modified = value.last_modified;
-                length = value.length;
-                etag = value.etag;
+			if (found) {
+				last_modified = value.last_modified;
+				length = value.length;
+				etag = value.etag;
 
-                if (flags.OpenForReading()) {
-                    read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[READ_BUFFER_LEN]);
-                }
-                return;
-            }
+				if (flags.OpenForReading()) {
+					read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[READ_BUFFER_LEN]);
+				}
+				return;
+			}
 
-            should_write_cache = true;
-        }
-    }
-    LoadFileInfo();
+			should_write_cache = true;
+		}
+	}
+	LoadFileInfo();
 
 	if (flags.OpenForReading()) {
-        if (http_params.state && length == 0) {
-            FullDownload(hfs, should_write_cache);
-        }
-        if (should_write_cache) {
-            current_cache->Insert(path, {length, last_modified, etag});
-        }
+		if (http_params.state && length == 0) {
+			FullDownload(hfs, should_write_cache);
+		}
+		if (should_write_cache) {
+			current_cache->Insert(path, {length, last_modified, etag});
+		}
 
-        // Initialize the read buffer now that we know the file exists
-        read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[READ_BUFFER_LEN]);
+		// Initialize the read buffer now that we know the file exists
+		read_buffer = duckdb::unique_ptr<data_t[]>(new data_t[READ_BUFFER_LEN]);
 	}
 
-    // If we're writing to a file, we might as well remove it from the cache
-    if (current_cache && flags.OpenForWriting()) {
-        current_cache->Erase(path);
-    }
+	// If we're writing to a file, we might as well remove it from the cache
+	if (current_cache && flags.OpenForWriting()) {
+		current_cache->Erase(path);
+	}
 }
 
 unique_ptr<HTTPClient> HTTPFileHandle::GetClient() {
