@@ -275,7 +275,7 @@ unique_ptr<HTTPClient> S3FileHandle::CreateClient() {
 	auto parsed_url = S3FileSystem::S3UrlParse(path, this->auth_params);
 
 	string proto_host_port = parsed_url.http_proto + parsed_url.host;
-	return http_params.http_util->InitializeClient(http_params, proto_host_port);
+	return http_params.http_util.InitializeClient(http_params, proto_host_port);
 }
 
 // Opens the multipart upload and returns the ID
@@ -706,7 +706,10 @@ unique_ptr<HTTPFileHandle> S3FileSystem::CreateHandle(const OpenFileInfo &file, 
 	auto parsed_s3_url = S3UrlParse(file.path, auth_params);
 	ReadQueryParams(parsed_s3_url.query_param, auth_params);
 
-	return duckdb::make_uniq<S3FileHandle>(*this, file, flags, HTTPFSParams::ReadFrom(opener, info), auth_params,
+	auto http_util = HTTPFSUtil::GetHTTPUtil(opener);
+	auto params = http_util->InitializeParameters(opener, info);
+
+	return duckdb::make_uniq<S3FileHandle>(*this, file, flags, std::move(params), auth_params,
 	                                       S3ConfigParams::ReadFrom(opener));
 }
 
@@ -887,7 +890,8 @@ vector<OpenFileInfo> S3FileSystem::Glob(const string &glob_pattern, FileOpener *
 	}
 
 	string shared_path = parsed_glob_url.substr(0, first_wildcard_pos);
-	auto http_params = HTTPFSParams::ReadFrom(opener, info);
+	auto http_util = HTTPFSUtil::GetHTTPUtil(opener);
+	auto http_params = http_util->InitializeParameters(opener, info);
 
 	ReadQueryParams(parsed_s3_url.query_param, s3_auth_params);
 
@@ -898,7 +902,7 @@ vector<OpenFileInfo> S3FileSystem::Glob(const string &glob_pattern, FileOpener *
 	// Main paging loop
 	do {
 		// main listobject call, may
-		string response_str = AWSListObjectV2::Request(shared_path, http_params, s3_auth_params,
+		string response_str = AWSListObjectV2::Request(shared_path, *http_params, s3_auth_params,
 		                                               main_continuation_token, HTTPState::TryGetState(opener).get());
 		main_continuation_token = AWSListObjectV2::ParseContinuationToken(response_str);
 		AWSListObjectV2::ParseFileList(response_str, s3_keys);
@@ -914,7 +918,7 @@ vector<OpenFileInfo> S3FileSystem::Glob(const string &glob_pattern, FileOpener *
 			string common_prefix_continuation_token;
 			do {
 				auto prefix_res =
-				    AWSListObjectV2::Request(prefix_path, http_params, s3_auth_params, common_prefix_continuation_token,
+				    AWSListObjectV2::Request(prefix_path, *http_params, s3_auth_params, common_prefix_continuation_token,
 				                             HTTPState::TryGetState(opener).get());
 				AWSListObjectV2::ParseFileList(prefix_res, s3_keys);
 				auto more_prefixes = AWSListObjectV2::ParseCommonPrefix(prefix_res);
@@ -986,7 +990,7 @@ HTTPException S3FileSystem::GetHTTPError(FileHandle &handle, const HTTPResponse 
 	}
 	return HTTPFileSystem::GetHTTPError(handle, response, url);
 }
-string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthParams &s3_auth_params,
+string AWSListObjectV2::Request(string &path, HTTPParams &http_params, S3AuthParams &s3_auth_params,
                                 string &continuation_token, optional_ptr<HTTPState> state, bool use_delimiter) {
 	auto parsed_url = S3FileSystem::S3UrlParse(path, s3_auth_params);
 
@@ -1011,7 +1015,7 @@ string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthP
 	    create_s3_header(req_path, req_params, parsed_url.host, "s3", "GET", s3_auth_params, "", "", "", "");
 
 	// Get requests use fresh connection
-	auto client = http_params.http_util->InitializeClient(http_params, parsed_url.http_proto + parsed_url.host);
+	auto client = http_params.http_util.InitializeClient(http_params, parsed_url.http_proto + parsed_url.host);
 	std::stringstream response;
 	GetRequestInfo get_request(
 	    parsed_url.host, listobjectv2_url, header_map, http_params,
@@ -1028,7 +1032,7 @@ string AWSListObjectV2::Request(string &path, HTTPFSParams &http_params, S3AuthP
 		    response << string(const_char_ptr_cast(data), data_length);
 		    return true;
 	    });
-	auto result = http_params.http_util->Request(get_request);
+	auto result = http_params.http_util.Request(get_request);
 	if (result->HasRequestError()) {
 		throw IOException("%s error for HTTP GET to '%s'", result->GetRequestError(), listobjectv2_url);
 	}

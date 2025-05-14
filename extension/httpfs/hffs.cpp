@@ -45,7 +45,7 @@ static string ParseNextUrlFromLinkHeader(const string &link_header_content) {
 HFFileHandle::~HFFileHandle() {};
 
 unique_ptr<HTTPClient> HFFileHandle::CreateClient() {
-	return http_params.http_util->InitializeClient(http_params, parsed_url.endpoint);
+	return http_params.http_util.InitializeClient(http_params, parsed_url.endpoint);
 }
 
 string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPFSParams &http_params, string &next_page_url,
@@ -69,7 +69,7 @@ string HuggingFaceFileSystem::ListHFRequest(ParsedHFUrl &url, HTTPFSParams &http
 		    response << string(const_char_ptr_cast(data), data_length);
 		    return true;
 	    });
-	auto res = http_params.http_util->Request(get_request);
+	auto res = http_params.http_util.Request(get_request);
 	if (res->status != HTTPStatusCode::OK_200) {
 		throw IOException(res->GetError() + " error for HTTP GET to '" + next_page_url + "'");
 	}
@@ -205,7 +205,9 @@ vector<OpenFileInfo> HuggingFaceFileSystem::Glob(const string &path, FileOpener 
 
 	FileOpenerInfo info;
 	info.file_path = path;
-	auto http_params = HTTPFSParams::ReadFrom(opener, info);
+	auto http_util = HTTPFSUtil::GetHTTPUtil(opener);
+	auto params = http_util->InitializeParameters(opener, info);
+	auto &http_params = params->Cast<HTTPFSParams>();
 	SetParams(http_params, path, opener);
 	auto http_state = HTTPState::TryGetState(opener).get();
 
@@ -278,10 +280,11 @@ unique_ptr<HTTPFileHandle> HuggingFaceFileSystem::CreateHandle(const OpenFileInf
 	FileOpenerInfo info;
 	info.file_path = file.path;
 
-	auto params = HTTPFSParams::ReadFrom(opener, info);
-	SetParams(params, file.path, opener);
+	auto http_util = HTTPFSUtil::GetHTTPUtil(opener);
+	auto params = http_util->InitializeParameters(opener, info);
+	SetParams(params->Cast<HTTPFSParams>(), file.path, opener);
 
-	return duckdb::make_uniq<HFFileHandle>(*this, std::move(parsed_url), file, flags, params);
+	return duckdb::make_uniq<HFFileHandle>(*this, std::move(parsed_url), file, flags, std::move(params));
 }
 
 void HuggingFaceFileSystem::SetParams(HTTPFSParams &params, const string &path, optional_ptr<FileOpener> opener) {

@@ -57,8 +57,8 @@ class HFFileHandle : public HTTPFileHandle {
 
 public:
 	HFFileHandle(FileSystem &fs, ParsedHFUrl hf_url, const OpenFileInfo &file, FileOpenFlags flags,
-	             const HTTPFSParams &http_params)
-	    : HTTPFileHandle(fs, file, flags, http_params), parsed_url(std::move(hf_url)) {
+	             unique_ptr<HTTPParams> http_params)
+	    : HTTPFileHandle(fs, file, flags, std::move(http_params)), parsed_url(std::move(hf_url)) {
 	}
 	~HFFileHandle() override;
 
