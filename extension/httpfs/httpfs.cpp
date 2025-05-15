@@ -21,7 +21,7 @@
 
 namespace duckdb {
 
-shared_ptr<HTTPUtil> GetHTTPUtil(optional_ptr<FileOpener> opener) {
+shared_ptr<HTTPUtil> HTTPFSUtil::GetHTTPUtil(optional_ptr<FileOpener> opener) {
 	if (opener) {
 		auto db = opener->TryGetDatabase();
 		if (db) {
@@ -32,53 +32,43 @@ shared_ptr<HTTPUtil> GetHTTPUtil(optional_ptr<FileOpener> opener) {
 	return make_shared_ptr<HTTPFSUtil>();
 }
 
-HTTPFSParams HTTPFSParams::ReadFrom(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info) {
-	HTTPFSParams result;
-	result.http_util = GetHTTPUtil(opener);
+unique_ptr<HTTPParams> HTTPFSUtil::InitializeParameters(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info) {
+	auto result = make_uniq<HTTPFSParams>(*this);
+	result->Initialize(opener);
 
 	// No point in continueing without an opener
 	if (!opener) {
-		return result;
+		return std::move(result);
 	}
 
 	Value value;
 
 	// Setting lookups
-	FileOpener::TryGetCurrentSetting(opener, "http_timeout", result.timeout, info);
-	FileOpener::TryGetCurrentSetting(opener, "force_download", result.force_download, info);
-	FileOpener::TryGetCurrentSetting(opener, "http_retries", result.retries, info);
-	FileOpener::TryGetCurrentSetting(opener, "http_retry_wait_ms", result.retry_wait_ms, info);
-	FileOpener::TryGetCurrentSetting(opener, "http_retry_backoff", result.retry_backoff, info);
-	FileOpener::TryGetCurrentSetting(opener, "http_keep_alive", result.keep_alive, info);
-	FileOpener::TryGetCurrentSetting(opener, "enable_server_cert_verification", result.enable_server_cert_verification,
+	FileOpener::TryGetCurrentSetting(opener, "http_timeout", result->timeout, info);
+	FileOpener::TryGetCurrentSetting(opener, "force_download", result->force_download, info);
+	FileOpener::TryGetCurrentSetting(opener, "http_retries", result->retries, info);
+	FileOpener::TryGetCurrentSetting(opener, "http_retry_wait_ms", result->retry_wait_ms, info);
+	FileOpener::TryGetCurrentSetting(opener, "http_retry_backoff", result->retry_backoff, info);
+	FileOpener::TryGetCurrentSetting(opener, "http_keep_alive", result->keep_alive, info);
+	FileOpener::TryGetCurrentSetting(opener, "enable_server_cert_verification", result->enable_server_cert_verification,
 	                                 info);
-	FileOpener::TryGetCurrentSetting(opener, "ca_cert_file", result.ca_cert_file, info);
-	FileOpener::TryGetCurrentSetting(opener, "hf_max_per_page", result.hf_max_per_page, info);
+	FileOpener::TryGetCurrentSetting(opener, "ca_cert_file", result->ca_cert_file, info);
+	FileOpener::TryGetCurrentSetting(opener, "hf_max_per_page", result->hf_max_per_page, info);
 
 	// HTTP Secret lookups
 	KeyValueSecretReader settings_reader(*opener, info, "http");
-
-	auto client_context = FileOpener::TryGetClientContext(opener);
-	if (client_context) {
-		result.Initialize(*client_context);
-	} else {
-		auto db = FileOpener::TryGetDatabase(opener);
-		if (db) {
-			result.Initialize(*db);
-		}
-	}
 
 	string proxy_setting;
 	if (settings_reader.TryGetSecretKey<string>("http_proxy", proxy_setting) && !proxy_setting.empty()) {
 		idx_t port;
 		string host;
 		HTTPUtil::ParseHTTPProxyHost(proxy_setting, host, port);
-		result.http_proxy = host;
-		result.http_proxy_port = port;
+		result->http_proxy = host;
+		result->http_proxy_port = port;
 	}
-	settings_reader.TryGetSecretKey<string>("http_proxy_username", result.http_proxy_username);
-	settings_reader.TryGetSecretKey<string>("http_proxy_password", result.http_proxy_password);
-	settings_reader.TryGetSecretKey<string>("bearer_token", result.bearer_token);
+	settings_reader.TryGetSecretKey<string>("http_proxy_username", result->http_proxy_username);
+	settings_reader.TryGetSecretKey<string>("http_proxy_password", result->http_proxy_password);
+	settings_reader.TryGetSecretKey<string>("bearer_token", result->bearer_token);
 
 	Value extra_headers;
 	if (settings_reader.TryGetSecretKey("extra_http_headers", extra_headers)) {
@@ -86,11 +76,11 @@ HTTPFSParams HTTPFSParams::ReadFrom(optional_ptr<FileOpener> opener, optional_pt
 		for (const auto &child : children) {
 			auto kv = StructValue::GetChildren(child);
 			D_ASSERT(kv.size() == 2);
-			result.extra_headers[kv[0].GetValue<string>()] = kv[1].GetValue<string>();
+			result->extra_headers[kv[0].GetValue<string>()] = kv[1].GetValue<string>();
 		}
 	}
 
-	return result;
+	return std::move(result);
 }
 
 unique_ptr<HTTPClient> HTTPClientCache::GetClient() {
@@ -113,7 +103,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
                                                      string &buffer_out, char *buffer_in, idx_t buffer_in_len,
                                                      string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
-	auto &http_util = *hfh.http_params.http_util;
+	auto &http_util = hfh.http_params.http_util;
 	PostRequestInfo post_request(url, header_map, hfh.http_params, const_data_ptr_cast(buffer_in), buffer_in_len);
 	auto result = http_util.Request(post_request);
 	buffer_out = std::move(post_request.buffer_out);
@@ -123,7 +113,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PostRequest(FileHandle &handle, string 
 unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                     char *buffer_in, idx_t buffer_in_len, string params) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
-	auto &http_util = *hfh.http_params.http_util;
+	auto &http_util = hfh.http_params.http_util;
 	string content_type = "application/octet-stream";
 	PutRequestInfo put_request(url, header_map, hfh.http_params, (const_data_ptr_t)buffer_in, buffer_in_len,
 	                           content_type);
@@ -132,7 +122,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::PutRequest(FileHandle &handle, string u
 
 unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
-	auto &http_util = *hfh.http_params.http_util;
+	auto &http_util = hfh.http_params.http_util;
 	auto http_client = hfh.GetClient();
 
 	HeadRequestInfo head_request(url, header_map, hfh.http_params);
@@ -144,7 +134,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::HeadRequest(FileHandle &handle, string 
 
 unique_ptr<HTTPResponse> HTTPFileSystem::DeleteRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
-	auto &http_util = *hfh.http_params.http_util;
+	auto &http_util = hfh.http_params.http_util;
 	auto http_client = hfh.GetClient();
 	DeleteRequestInfo delete_request(url, header_map, hfh.http_params);
 	auto response = http_util.Request(delete_request, http_client);
@@ -166,7 +156,7 @@ HTTPException HTTPFileSystem::GetHTTPError(FileHandle &, const HTTPResponse &res
 
 unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string url, HTTPHeaders header_map) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
-	auto &http_util = *hfh.http_params.http_util;
+	auto &http_util = hfh.http_params.http_util;
 
 	D_ASSERT(hfh.cached_file_handle);
 
@@ -215,7 +205,7 @@ unique_ptr<HTTPResponse> HTTPFileSystem::GetRequest(FileHandle &handle, string u
 unique_ptr<HTTPResponse> HTTPFileSystem::GetRangeRequest(FileHandle &handle, string url, HTTPHeaders header_map,
                                                          idx_t file_offset, char *buffer_out, idx_t buffer_out_len) {
 	auto &hfh = handle.Cast<HTTPFileHandle>();
-	auto &http_util = *hfh.http_params.http_util;
+	auto &http_util = hfh.http_params.http_util;
 
 	// send the Range header to read only subset of file
 	string range_expr = "bytes=" + to_string(file_offset) + "-" + to_string(file_offset + buffer_out_len - 1);
@@ -286,8 +276,8 @@ void TimestampToTimeT(timestamp_t timestamp, time_t &result) {
 }
 
 HTTPFileHandle::HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags,
-                               HTTPFSParams http_params_p)
-    : FileHandle(fs, file.path, flags), http_params(std::move(http_params_p)), flags(flags), length(0),
+                               unique_ptr<HTTPParams> params_p)
+    : FileHandle(fs, file.path, flags), params(std::move(params_p)), http_params(params->Cast<HTTPFSParams>()), flags(flags), length(0),
       buffer_available(0), buffer_idx(0), file_offset(0), buffer_start(0), buffer_end(0) {
 	// check if the handle has extended properties that can be set directly in the handle
 	// if we have these properties we don't need to do a head request to obtain them later
@@ -318,7 +308,9 @@ unique_ptr<HTTPFileHandle> HTTPFileSystem::CreateHandle(const OpenFileInfo &file
 
 	FileOpenerInfo info;
 	info.file_path = file.path;
-	auto params = HTTPFSParams::ReadFrom(opener, info);
+
+	auto http_util = HTTPFSUtil::GetHTTPUtil(opener);
+	auto params = http_util->InitializeParameters(opener, info);
 
 	auto secret_manager = FileOpener::TryGetSecretManager(opener);
 	auto transaction = FileOpener::TryGetCatalogTransaction(opener);
@@ -327,10 +319,11 @@ unique_ptr<HTTPFileHandle> HTTPFileSystem::CreateHandle(const OpenFileInfo &file
 
 		if (secret_match.HasMatch()) {
 			const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret_match.secret_entry->secret);
-			params.bearer_token = kv_secret.TryGetValue("token", true).ToString();
+			auto &httpfs_params = params->Cast<HTTPFSParams>();
+			httpfs_params.bearer_token = kv_secret.TryGetValue("token", true).ToString();
 		}
 	}
-	return duckdb::make_uniq<HTTPFileHandle>(*this, file, flags, params);
+	return duckdb::make_uniq<HTTPFileHandle>(*this, file, flags, std::move(params));
 }
 
 unique_ptr<FileHandle> HTTPFileSystem::OpenFileExtended(const OpenFileInfo &file, FileOpenFlags flags,
@@ -711,7 +704,7 @@ unique_ptr<HTTPClient> HTTPFileHandle::CreateClient() {
 	// Create a new client
 	string path_out, proto_host_port;
 	HTTPUtil::DecomposeURL(path, path_out, proto_host_port);
-	return http_params.http_util->InitializeClient(http_params, proto_host_port);
+	return http_params.http_util.InitializeClient(http_params, proto_host_port);
 }
 
 void HTTPFileHandle::StoreClient(unique_ptr<HTTPClient> client) {

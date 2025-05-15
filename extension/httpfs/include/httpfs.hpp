@@ -32,7 +32,7 @@ class HTTPFileSystem;
 
 class HTTPFileHandle : public FileHandle {
 public:
-	HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, HTTPFSParams params);
+	HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags, unique_ptr<HTTPParams> params);
 	~HTTPFileHandle() override;
 	// This two-phase construction allows subclasses more flexible setup.
 	virtual void Initialize(optional_ptr<FileOpener> opener);
@@ -40,7 +40,8 @@ public:
 	// We keep an http client stored for connection reuse with keep-alive headers
 	HTTPClientCache client_cache;
 
-	HTTPFSParams http_params;
+	unique_ptr<HTTPParams> params;
+	HTTPFSParams &http_params;
 
 	// File handle info
 	FileOpenFlags flags;
