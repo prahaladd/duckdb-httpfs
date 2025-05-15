@@ -9,7 +9,8 @@ struct FileOpenerInfo;
 class HTTPState;
 
 struct HTTPFSParams : public HTTPParams {
-	HTTPFSParams(HTTPUtil &http_util) : HTTPParams(http_util) {}
+	HTTPFSParams(HTTPUtil &http_util) : HTTPParams(http_util) {
+	}
 
 	static constexpr bool DEFAULT_ENABLE_SERVER_CERT_VERIFICATION = false;
 	static constexpr uint64_t DEFAULT_HF_MAX_PER_PAGE = 0;
@@ -25,7 +26,8 @@ struct HTTPFSParams : public HTTPParams {
 
 class HTTPFSUtil : public HTTPUtil {
 public:
-	unique_ptr<HTTPParams> InitializeParameters(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info) override;
+	unique_ptr<HTTPParams> InitializeParameters(optional_ptr<FileOpener> opener,
+	                                            optional_ptr<FileOpenerInfo> info) override;
 	unique_ptr<HTTPClient> InitializeClient(HTTPParams &http_params, const string &proto_host_port) override;
 
 	static unordered_map<string, string> ParseGetParameters(const string &text);
