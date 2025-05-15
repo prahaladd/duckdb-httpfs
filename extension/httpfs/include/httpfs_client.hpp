@@ -1,3 +1,5 @@
+#pragma once
+
 #include "duckdb/common/http_util.hpp"
 
 namespace duckdb {
