@@ -1,6 +1,5 @@
 #include "httpfs_client.hpp"
 #include "http_state.hpp"
-#include "duckdb/logging/http_logger.hpp"
 
 #define CPPHTTPLIB_OPENSSL_SUPPORT
 #include "httplib.hpp"
@@ -21,9 +20,6 @@ public:
 		client->set_read_timeout(http_params.timeout, http_params.timeout_usec);
 		client->set_connection_timeout(http_params.timeout, http_params.timeout_usec);
 		client->set_decompress(false);
-		if (http_params.logger) {
-			SetLogger(*http_params.logger);
-		}
 		if (!http_params.bearer_token.empty()) {
 			client->set_bearer_token_auth(http_params.bearer_token.c_str());
 		}
@@ -38,9 +34,6 @@ public:
 		state = http_params.state;
 	}
 
-	void SetLogger(HTTPLogger &logger) {
-		client->set_logger(logger.GetLogger<duckdb_httplib_openssl::Request, duckdb_httplib_openssl::Response>());
-	}
 	unique_ptr<HTTPResponse> Get(GetRequestInfo &info) override {
 		if (state) {
 			state->get_count++;

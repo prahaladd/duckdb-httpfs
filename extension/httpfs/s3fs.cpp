@@ -4,6 +4,8 @@
 #include "duckdb.hpp"
 #ifndef DUCKDB_AMALGAMATION
 #include "duckdb/common/exception/http_exception.hpp"
+#include "duckdb/logging/log_type.hpp"
+#include "duckdb/logging/file_system_logger.hpp"
 #include "duckdb/common/helper.hpp"
 #include "duckdb/common/thread.hpp"
 #include "duckdb/common/types/timestamp.hpp"
@@ -838,6 +840,8 @@ void S3FileSystem::Write(FileHandle &handle, void *buffer, int64_t nr_bytes, idx
 		s3fh.file_offset += bytes_to_write;
 		bytes_written += bytes_to_write;
 	}
+
+	DUCKDB_LOG_FILE_SYSTEM_WRITE(handle, bytes_written, s3fh.file_offset - bytes_written);
 }
 
 static bool Match(vector<string>::const_iterator key, vector<string>::const_iterator key_end,
@@ -918,8 +922,8 @@ vector<OpenFileInfo> S3FileSystem::Glob(const string &glob_pattern, FileOpener *
 			string common_prefix_continuation_token;
 			do {
 				auto prefix_res =
-				    AWSListObjectV2::Request(prefix_path, *http_params, s3_auth_params, common_prefix_continuation_token,
-				                             HTTPState::TryGetState(opener).get());
+				    AWSListObjectV2::Request(prefix_path, *http_params, s3_auth_params,
+				                             common_prefix_continuation_token, HTTPState::TryGetState(opener).get());
 				AWSListObjectV2::ParseFileList(prefix_res, s3_keys);
 				auto more_prefixes = AWSListObjectV2::ParseCommonPrefix(prefix_res);
 				common_prefixes.insert(common_prefixes.end(), more_prefixes.begin(), more_prefixes.end());

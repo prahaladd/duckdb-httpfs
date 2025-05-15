@@ -8,7 +8,7 @@
 #include "duckdb/common/thread.hpp"
 #include "duckdb/common/types/hash.hpp"
 #include "duckdb/function/scalar/strftime_format.hpp"
-#include "duckdb/logging/http_logger.hpp"
+#include "duckdb/logging/file_system_logger.hpp"
 #include "duckdb/main/client_context.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
@@ -32,7 +32,8 @@ shared_ptr<HTTPUtil> HTTPFSUtil::GetHTTPUtil(optional_ptr<FileOpener> opener) {
 	return make_shared_ptr<HTTPFSUtil>();
 }
 
-unique_ptr<HTTPParams> HTTPFSUtil::InitializeParameters(optional_ptr<FileOpener> opener, optional_ptr<FileOpenerInfo> info) {
+unique_ptr<HTTPParams> HTTPFSUtil::InitializeParameters(optional_ptr<FileOpener> opener,
+                                                        optional_ptr<FileOpenerInfo> info) {
 	auto result = make_uniq<HTTPFSParams>(*this);
 	result->Initialize(opener);
 
@@ -277,8 +278,8 @@ void TimestampToTimeT(timestamp_t timestamp, time_t &result) {
 
 HTTPFileHandle::HTTPFileHandle(FileSystem &fs, const OpenFileInfo &file, FileOpenFlags flags,
                                unique_ptr<HTTPParams> params_p)
-    : FileHandle(fs, file.path, flags), params(std::move(params_p)), http_params(params->Cast<HTTPFSParams>()), flags(flags), length(0),
-      buffer_available(0), buffer_idx(0), file_offset(0), buffer_start(0), buffer_end(0) {
+    : FileHandle(fs, file.path, flags), params(std::move(params_p)), http_params(params->Cast<HTTPFSParams>()),
+      flags(flags), length(0), buffer_available(0), buffer_idx(0), file_offset(0), buffer_start(0), buffer_end(0) {
 	// check if the handle has extended properties that can be set directly in the handle
 	// if we have these properties we don't need to do a head request to obtain them later
 	if (file.extended_info) {
@@ -342,6 +343,9 @@ unique_ptr<FileHandle> HTTPFileSystem::OpenFileExtended(const OpenFileInfo &file
 
 	auto handle = CreateHandle(file, flags, opener);
 	handle->Initialize(opener);
+
+	DUCKDB_LOG_FILE_SYSTEM_OPEN((*handle));
+
 	return std::move(handle);
 }
 
@@ -356,6 +360,8 @@ void HTTPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, id
 			throw InternalException("Cached file not initialized properly");
 		}
 		memcpy(buffer, hfh.cached_file_handle->GetData() + location, nr_bytes);
+		DUCKDB_LOG_FILE_SYSTEM_READ(handle, nr_bytes, location);
+		hfh.file_offset = location + nr_bytes;
 		return;
 	}
 
@@ -366,17 +372,19 @@ void HTTPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, id
 	bool skip_buffer = hfh.flags.DirectIO() || hfh.flags.RequireParallelAccess();
 	if (skip_buffer && to_read > 0) {
 		GetRangeRequest(hfh, hfh.path, {}, location, (char *)buffer, to_read);
-
+		DUCKDB_LOG_FILE_SYSTEM_READ(handle, nr_bytes, location);
 		// Update handle status within critical section for parallel access.
 		if (hfh.flags.RequireParallelAccess()) {
 			std::lock_guard<std::mutex> lck(hfh.mu);
 			hfh.buffer_available = 0;
 			hfh.buffer_idx = 0;
+			hfh.file_offset = location + nr_bytes;
 			return;
 		}
 
 		hfh.buffer_available = 0;
 		hfh.buffer_idx = 0;
+		hfh.file_offset = location + nr_bytes;
 		return;
 	}
 
@@ -423,6 +431,8 @@ void HTTPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes, id
 			}
 		}
 	}
+	hfh.file_offset = location + nr_bytes;
+	DUCKDB_LOG_FILE_SYSTEM_READ(handle, nr_bytes, location);
 }
 
 int64_t HTTPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes) {
@@ -430,7 +440,6 @@ int64_t HTTPFileSystem::Read(FileHandle &handle, void *buffer, int64_t nr_bytes)
 	idx_t max_read = hfh.length - hfh.file_offset;
 	nr_bytes = MinValue<idx_t>(max_read, nr_bytes);
 	Read(handle, buffer, nr_bytes, hfh.file_offset);
-	hfh.file_offset += nr_bytes;
 	return nr_bytes;
 }
 
@@ -642,6 +651,10 @@ void HTTPFileHandle::Initialize(optional_ptr<FileOpener> opener) {
 		http_params.state = make_shared_ptr<HTTPState>();
 	}
 
+	if (opener) {
+		TryAddLogger(*opener);
+	}
+
 	auto current_cache = TryGetMetadataCache(opener, hfs);
 
 	bool should_write_cache = false;
@@ -711,5 +724,7 @@ void HTTPFileHandle::StoreClient(unique_ptr<HTTPClient> client) {
 	client_cache.StoreClient(std::move(client));
 }
 
-HTTPFileHandle::~HTTPFileHandle() = default;
+HTTPFileHandle::~HTTPFileHandle() {
+	DUCKDB_LOG_FILE_SYSTEM_CLOSE((*this));
+};
 } // namespace duckdb
