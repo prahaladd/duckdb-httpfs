@@ -10,7 +10,7 @@ class HTTPFSClient : public HTTPClient {
 public:
 	HTTPFSClient(HTTPFSParams &http_params, const string &proto_host_port) {
 		client = make_uniq<duckdb_httplib_openssl::Client>(proto_host_port);
-		client->set_follow_location(true);
+		client->set_follow_location(http_params.follow_location);
 		client->set_keep_alive(http_params.keep_alive);
 		if (!http_params.ca_cert_file.empty()) {
 			client->set_ca_cert_path(http_params.ca_cert_file.c_str());
